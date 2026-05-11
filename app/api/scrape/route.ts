@@ -20,16 +20,12 @@ export interface ScrapeResult {
 }
 
 const SKOOL_URL = "https://www.skool.com/aegisnutritionacademy/-/members";
-
-function getTabParam(tab: string): string {
-  const map: Record<string, string> = {
-    active: "",
-    cancelling: "?filter=cancelling",
-    churned: "?filter=churned",
-    banned: "?filter=banned",
-  };
-  return map[tab] ?? "";
-}
+const TAB_PARAMS: Record<string, string> = {
+  active: "",
+  cancelling: "?filter=cancelling",
+  churned: "?filter=churned",
+  banned: "?filter=banned",
+};
 
 async function extractMembersFromPage(
   page: import("playwright-core").Page,
@@ -147,7 +143,7 @@ export async function POST(req: NextRequest) {
   try {
     storedCookies = JSON.parse(sessionCookie.value);
   } catch {
-    return NextResponse.json({ error: "Invalid session." }, { status: 401 });
+    return NextResponse.json({ error: "Invalid session. Please log in again." }, { status: 401 });
   }
 
   let body: { tab?: string; forceRefresh?: boolean } = {};
@@ -176,9 +172,9 @@ export async function POST(req: NextRequest) {
   try {
     browser = await launchBrowser();
   } catch (err) {
-    console.error("Browser launch error:", err);
+    console.error("[scrape] browser launch failed:", String(err));
     return NextResponse.json(
-      { error: `Browser failed to start: ${String(err)}` },
+      { error: `Browser failed: ${String(err)}` },
       { status: 500 }
     );
   }
@@ -203,10 +199,13 @@ export async function POST(req: NextRequest) {
 
   const page = await context.newPage();
 
-  await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot}", (route) => route.abort());
+  await page.route(
+    "**/*.{png,jpg,jpeg,gif,webp,svg,ico,woff,woff2,ttf,eot,mp4,mp3}",
+    (route) => route.abort()
+  );
 
   try {
-    await page.goto(`${SKOOL_URL}${getTabParam(tab)}`, {
+    await page.goto(`${SKOOL_URL}${TAB_PARAMS[tab] ?? ""}`, {
       waitUntil: "domcontentloaded",
       timeout: 25000,
     });
@@ -214,7 +213,7 @@ export async function POST(req: NextRequest) {
 
     if (page.url().includes("/login")) {
       await browser.close();
-      return NextResponse.json({ error: "Session expired." }, { status: 401 });
+      return NextResponse.json({ error: "Session expired. Please log in again." }, { status: 401 });
     }
 
     const totalPages = await page.evaluate(() => {
@@ -287,7 +286,7 @@ export async function POST(req: NextRequest) {
       cachedAt: Date.now(),
     } satisfies ScrapeResult);
   } catch (err) {
-    console.error("Scrape error:", err);
+    console.error("[scrape] error:", String(err));
     await browser.close().catch(() => {});
     return NextResponse.json({ error: String(err) }, { status: 500 });
   }

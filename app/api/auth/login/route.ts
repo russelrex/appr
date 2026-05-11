@@ -22,7 +22,7 @@ export async function POST(req: NextRequest) {
   try {
     browser = await launchBrowser();
   } catch (err) {
-    console.error("Browser launch error:", err);
+    console.error("[login] browser launch failed:", String(err));
     return NextResponse.json(
       { error: `Browser failed to start: ${String(err)}` },
       { status: 500 }
@@ -51,7 +51,7 @@ export async function POST(req: NextRequest) {
     ]);
 
     if (page.url().includes("/login")) {
-      const errEl = await page.$('[class*="error"], [class*="Error"], [role="alert"]');
+      const errEl = await page.$('[class*="error"],[class*="Error"],[role="alert"]');
       const errText = errEl ? await errEl.textContent() : null;
       await browser.close();
       return NextResponse.json(
@@ -86,8 +86,8 @@ export async function POST(req: NextRequest) {
 
     return res;
   } catch (err) {
-    console.error("Login scrape error:", err);
+    console.error("[login] scrape error:", String(err));
     await browser.close().catch(() => {});
-    return NextResponse.json({ error: `Login failed: ${String(err)}` }, { status: 500 });
+    return NextResponse.json({ error: `Login error: ${String(err)}` }, { status: 500 });
   }
 }
