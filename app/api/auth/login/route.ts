@@ -1,20 +1,34 @@
 import { NextRequest, NextResponse } from "next/server";
 import { launchBrowser } from "@/app/lib/launchBrowser";
 
+export const maxDuration = 30;
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const { email, password } = await req.json();
+  let body: { email?: string; password?: string } = {};
+  try {
+    body = await req.json();
+  } catch {
+    /* invalid json */
+  }
 
+  const { email, password } = body;
   if (!email || !password) {
+    return NextResponse.json({ error: "Email and password are required." }, { status: 400 });
+  }
+
+  let browser;
+  try {
+    browser = await launchBrowser();
+  } catch (err) {
+    console.error("Browser launch error:", err);
     return NextResponse.json(
-      { error: "Email and password are required." },
-      { status: 400 }
+      { error: `Browser failed to start: ${String(err)}` },
+      { status: 500 }
     );
   }
 
-  const browser = await launchBrowser();
   const context = await browser.newContext({
     userAgent:
       "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
@@ -23,27 +37,25 @@ export async function POST(req: NextRequest) {
 
   try {
     await page.goto("https://www.skool.com/login", {
-      waitUntil: "networkidle",
+      waitUntil: "domcontentloaded",
       timeout: 20000,
     });
+    await page.waitForSelector('input[type="email"]', { timeout: 10000 });
 
-    await page.fill('input[type="email"], input[name="email"]', email);
-    await page.fill('input[type="password"], input[name="password"]', password);
+    await page.fill('input[type="email"]', email);
+    await page.fill('input[type="password"]', password);
 
     await Promise.all([
-      page.waitForNavigation({ waitUntil: "networkidle", timeout: 20000 }),
+      page.waitForNavigation({ waitUntil: "domcontentloaded", timeout: 20000 }),
       page.click('button[type="submit"]'),
     ]);
 
-    const finalUrl = page.url();
-
-    if (finalUrl.includes("/login")) {
-      const errorText = await page
-        .textContent('[class*="error"], [class*="Error"], [role="alert"]')
-        .catch(() => null);
+    if (page.url().includes("/login")) {
+      const errEl = await page.$('[class*="error"], [class*="Error"], [role="alert"]');
+      const errText = errEl ? await errEl.textContent() : null;
       await browser.close();
       return NextResponse.json(
-        { error: errorText?.trim() || "Invalid email or password." },
+        { error: errText?.trim() || "Invalid email or password." },
         { status: 401 }
       );
     }
@@ -52,7 +64,6 @@ export async function POST(req: NextRequest) {
     await browser.close();
 
     const sessionData = JSON.stringify(cookies);
-
     const res = NextResponse.json({ ok: true, redirectTo: "/members" });
 
     res.cookies.set("skool_session", sessionData, {
@@ -63,7 +74,7 @@ export async function POST(req: NextRequest) {
       path: "/",
     });
 
-    const displayEmail = email as string;
+    const displayEmail = email;
     const displayName = displayEmail.split("@")[0];
     res.cookies.set("skool_user", JSON.stringify({ email: displayEmail, name: displayName }), {
       httpOnly: false,
@@ -75,7 +86,8 @@ export async function POST(req: NextRequest) {
 
     return res;
   } catch (err) {
-    await browser.close();
-    return NextResponse.json({ error: String(err) }, { status: 500 });
+    console.error("Login scrape error:", err);
+    await browser.close().catch(() => {});
+    return NextResponse.json({ error: `Login failed: ${String(err)}` }, { status: 500 });
   }
 }
