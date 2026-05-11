@@ -4,7 +4,9 @@ export function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   const isProtected =
-    pathname.startsWith("/members") || pathname.startsWith("/api/scrape");
+    pathname.startsWith("/members") ||
+    pathname.startsWith("/api/scrape") ||
+    pathname.startsWith("/api/cache");
 
   if (isProtected) {
     const session = req.cookies.get("skool_session");
@@ -26,6 +28,6 @@ export function middleware(req: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/members/:path*", "/api/scrape/:path*", "/login"],
+  matcher: ["/members/:path*", "/api/scrape/:path*", "/api/cache/:path*", "/login"],
 };
 

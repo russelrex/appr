@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
+import * as XLSX from "xlsx";
 import { useRouter } from "next/navigation";
 
 interface SkoolMember {
@@ -288,20 +289,303 @@ function MemberCard({ member }: { member: SkoolMember }) {
 }
 
 /* ── Main Page ────────────────────────────────────────────────────────── */
+
+// Parse Skool date strings client-side too (mirrors server logic)
+function parseSkoolDate(str: string): Date | null {
+  if (!str) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return new Date(str + "T00:00:00");
+  const full = str.match(/^(\w+)\s+(\d+),\s+(\d{4})$/);
+  if (full) return new Date(`${full[1]} ${full[2]}, ${full[3]}`);
+  const short = str.match(/^(\w+)\s+(\d{4})$/);
+  if (short) return new Date(`${short[1]} 1, ${short[2]}`);
+  return null;
+}
+
+function applyFilters(
+  all: SkoolMember[],
+  { searchName, priceFilter, referral, joinedAfter, joinedBefore }: {
+    searchName: string; priceFilter: string; referral: string;
+    joinedAfter: string; joinedBefore: string;
+  }
+): SkoolMember[] {
+  let out = all;
+
+  if (searchName) {
+    const q = searchName.toLowerCase();
+    out = out.filter((m) => m.name.toLowerCase().includes(q) || m.handle.toLowerCase().includes(q));
+  }
+
+  if (priceFilter) {
+    out = out.filter((m) => {
+      const raw = (m.price || "").replace(/[\s,]/g, "").toLowerCase();
+      const numVal = parseFloat(raw.replace(/[^0-9.]/g, "")) || 0;
+      switch (priceFilter) {
+        case "free":   return raw === "free" || raw === "" || numVal === 0;
+        case "35":     return numVal === 35;
+        case "129":    return numVal === 129;
+        case "annual": return raw.includes("year") || numVal >= 300;
+        default:       return true;
+      }
+    });
+  }
+
+  if (referral) {
+    out = out.filter((m) => m.referralSource.toLowerCase().includes(referral.toLowerCase()));
+  }
+
+  if (joinedAfter) {
+    const after = parseSkoolDate(joinedAfter);
+    if (after) out = out.filter((m) => { const d = parseSkoolDate(m.joinedDate); return d !== null && d >= after; });
+  }
+
+  if (joinedBefore) {
+    const before = parseSkoolDate(joinedBefore);
+    if (before) {
+      before.setHours(23, 59, 59, 999);
+      out = out.filter((m) => { const d = parseSkoolDate(m.joinedDate); return d !== null && d <= before; });
+    }
+  }
+
+  return out;
+}
+
+const PAGE_SIZE = 30;
+
+/* ── Excel export ─────────────────────────────────────────────────────── */
+function exportToExcel(members: SkoolMember[], filename: string) {
+  // Build rows with friendly column names
+  const rows = members.map((m, i) => ({
+    "#":               i + 1,
+    "Name":            m.name,
+    "Handle":          m.handle,
+    "Bio":             m.bio,
+    "Tier":            m.tier || "Free",
+    "Plan / Price":    m.price || "Free",
+    "Status":          m.cancelledInfo || m.status,
+    "Joined Date":     m.joinedDate,
+    "Last Active":     m.activeAgo ? `Active ${m.activeAgo}` : "",
+    "Renews / Access": m.renewsIn,
+    "Referral Source": m.referralSource,
+    "Level":           m.level,
+    "Location":        m.location,
+    "Avatar URL":      m.avatar,
+  }));
+
+  const ws = XLSX.utils.json_to_sheet(rows);
+
+  // Auto-width: measure each column's max character length
+  const cols = Object.keys(rows[0] || {});
+  ws["!cols"] = cols.map((col) => ({
+    wch: Math.min(
+      60,
+      Math.max(
+        col.length + 2,
+        ...rows.map((r) => String(r[col as keyof typeof r] ?? "").length)
+      )
+    ),
+  }));
+
+  // Style header row bold (xlsx-style not available in community xlsx, so we use outline)
+  const range = XLSX.utils.decode_range(ws["!ref"] ?? "A1");
+  for (let c = range.s.c; c <= range.e.c; c++) {
+    const cellAddr = XLSX.utils.encode_cell({ r: 0, c });
+    if (!ws[cellAddr]) continue;
+    ws[cellAddr].s = { font: { bold: true }, fill: { fgColor: { rgb: "F5C842" } } };
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Members");
+  XLSX.writeFile(wb, `${filename}.xlsx`);
+}
+
+/* ── Export dropdown button ───────────────────────────────────────────── */
+function ExportButton({
+  allMembers, filteredMembers, activeTab, hasFilters,
+}: {
+  allMembers: SkoolMember[]; filteredMembers: SkoolMember[];
+  activeTab: string; hasFilters: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, []);
+
+  const now = new Date().toISOString().slice(0, 10);
+
+  return (
+    <div className="relative" ref={ref}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        disabled={allMembers.length === 0}
+        className="flex items-center gap-1.5 px-3.5 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg text-[13px] font-medium hover:border-gray-300 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+      >
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/>
+          <polyline points="14 2 14 8 20 8"/>
+          <line x1="12" y1="18" x2="12" y2="12"/>
+          <line x1="9" y1="15" x2="12" y2="18"/><line x1="15" y1="15" x2="12" y2="18"/>
+        </svg>
+        Export
+        <svg className={`w-3 h-3 transition-transform ${open ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+          <polyline points="6 9 12 15 18 9"/>
+        </svg>
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full mt-1.5 w-64 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden z-30">
+          <div className="px-3.5 pt-3 pb-2">
+            <p className="text-[11px] font-semibold text-gray-400 uppercase tracking-wider">Export to Excel (.xlsx)</p>
+          </div>
+
+          {/* Export filtered (only shown when filters active) */}
+          {hasFilters && (
+            <button
+              onClick={() => {
+                exportToExcel(filteredMembers, `skool-${activeTab}-filtered-${now}`);
+                setOpen(false);
+              }}
+              className="w-full flex items-start gap-3 px-3.5 py-2.5 hover:bg-amber-50 transition-colors text-left"
+            >
+              <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+                <svg className="w-3.5 h-3.5 text-amber-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
+                </svg>
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold text-gray-800">Filtered results</p>
+                <p className="text-[11px] text-gray-400">{filteredMembers.length} member{filteredMembers.length !== 1 ? "s" : ""} · current filters applied</p>
+              </div>
+            </button>
+          )}
+
+          {/* Export all members for this tab */}
+          <button
+            onClick={() => {
+              exportToExcel(allMembers, `skool-${activeTab}-all-${now}`);
+              setOpen(false);
+            }}
+            className="w-full flex items-start gap-3 px-3.5 py-2.5 hover:bg-gray-50 transition-colors text-left"
+          >
+            <div className="w-7 h-7 rounded-lg bg-emerald-100 flex items-center justify-center flex-shrink-0 mt-0.5">
+              <svg className="w-3.5 h-3.5 text-emerald-700" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/>
+                <path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/>
+              </svg>
+            </div>
+            <div>
+              <p className="text-[13px] font-semibold text-gray-800">All {activeTab} members</p>
+              <p className="text-[11px] text-gray-400">{allMembers.length} member{allMembers.length !== 1 ? "s" : ""} · no filters</p>
+            </div>
+          </button>
+
+          <div className="border-t border-gray-100 px-3.5 py-2">
+            <p className="text-[10px] text-gray-400">
+              Includes: name, handle, plan, joined date, active time, referral source, level
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Pagination component ─────────────────────────────────────────────── */
+function Pagination({
+  current, total, onChange,
+}: { current: number; total: number; onChange: (p: number) => void }) {
+  if (total <= 1) return null;
+
+  const pages: (number | "…")[] = [];
+  if (total <= 7) {
+    for (let i = 1; i <= total; i++) pages.push(i);
+  } else {
+    pages.push(1);
+    if (current > 3) pages.push("…");
+    for (let i = Math.max(2, current - 1); i <= Math.min(total - 1, current + 1); i++) pages.push(i);
+    if (current < total - 2) pages.push("…");
+    pages.push(total);
+  }
+
+  return (
+    <div className="flex items-center justify-between px-6 py-4 border-t border-gray-100">
+      <button
+        onClick={() => onChange(current - 1)}
+        disabled={current === 1}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] text-gray-500 hover:text-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+      >
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polyline points="15 18 9 12 15 6"/>
+        </svg>
+        Previous
+      </button>
+
+      <div className="flex items-center gap-1">
+        {pages.map((p, i) =>
+          p === "…" ? (
+            <span key={`ellipsis-${i}`} className="px-2 text-gray-400 text-[13px]">…</span>
+          ) : (
+            <button
+              key={p}
+              onClick={() => onChange(p as number)}
+              className={`w-8 h-8 rounded-full text-[13px] font-medium transition-colors ${
+                current === p
+                  ? "bg-[#f5c842] text-gray-900 font-bold"
+                  : "text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+              }`}
+            >
+              {p}
+            </button>
+          )
+        )}
+      </div>
+
+      <button
+        onClick={() => onChange(current + 1)}
+        disabled={current === total}
+        className="flex items-center gap-1.5 px-3 py-1.5 text-[13px] text-gray-500 hover:text-gray-800 disabled:opacity-30 disabled:cursor-not-allowed transition-colors"
+      >
+        Next
+        <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <polyline points="9 18 15 12 9 6"/>
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 export default function MembersPage() {
   const router = useRouter();
   const [activeTab, setActiveTab]   = useState<Tab>("active");
-  const [members, setMembers]       = useState<SkoolMember[]>([]);
+  const [allMembers, setAllMembers] = useState<SkoolMember[]>([]);
   const [loading, setLoading]       = useState(true);
   const [error, setError]           = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [userEmail, setUserEmail]   = useState("");
+  const [currentPage, setCurrentPage] = useState(1);
+  const [totalSkoolPages, setTotalSkoolPages] = useState(0);
+  const [elapsed, setElapsed]       = useState(0);
+  const [fromCache, setFromCache]   = useState(false);
+  const [cachedAt, setCachedAt]     = useState<number | null>(null);
+  const elapsedRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [searchName,   setSearchName]   = useState("");
   const [joinedAfter,  setJoinedAfter]  = useState("");
   const [joinedBefore, setJoinedBefore] = useState("");
-  const [priceFilter,  setPriceFilter]  = useState<string>(""); // "free" | "35" | "129" | "annual" | ""
+  const [priceFilter,  setPriceFilter]  = useState<string>("");
   const [referral,     setReferral]     = useState("");
+
+  // Derived: filtered + paginated
+  const filteredMembers = applyFilters(allMembers, { searchName, priceFilter, referral, joinedAfter, joinedBefore });
+  const totalFilteredPages = Math.ceil(filteredMembers.length / PAGE_SIZE);
+  const pageStart = (currentPage - 1) * PAGE_SIZE;
+  const members = filteredMembers.slice(pageStart, pageStart + PAGE_SIZE);
 
   useEffect(() => {
     try {
@@ -310,34 +594,46 @@ export default function MembersPage() {
     } catch { /* ignore */ }
   }, []);
 
-  const scrape = useCallback(async (tab: Tab, overrides?: Record<string, unknown>) => {
+  // Scrape fetches ALL members across all pages — filters applied client-side
+  const scrape = useCallback(async (tab: Tab, forceRefresh = false) => {
     setLoading(true);
     setError("");
+    setCurrentPage(1);
+    setElapsed(0);
+    setFromCache(false);
+
+    // Only run elapsed timer when actually scraping (not cache hit)
+    // We start it optimistically and stop early if cache returns instantly
+    if (elapsedRef.current) clearInterval(elapsedRef.current);
+    elapsedRef.current = setInterval(() => setElapsed((e) => e + 1), 1000);
+
     try {
       const res = await fetch("/api/scrape", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          tab, searchName, joinedAfter, joinedBefore, priceFilter, referral,
-          ...overrides,
-        }),
+        body: JSON.stringify({ tab, forceRefresh }),
       });
       const data = await res.json();
       if (res.status === 401) { router.push("/login"); return; }
       if (!res.ok || data.error) throw new Error(data.error || "Scrape failed");
-      setMembers(data.members);
+      setAllMembers(data.members);
+      setTotalSkoolPages(data.totalPages ?? 1);
+      setFromCache(data.fromCache ?? false);
+      setCachedAt(data.cachedAt ?? null);
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
+      if (elapsedRef.current) { clearInterval(elapsedRef.current); elapsedRef.current = null; }
     }
-  }, [searchName, joinedAfter, joinedBefore, priceFilter, referral, router]);
+  }, [router]);
 
   // Auto-load on mount
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { scrape("active"); }, []);
 
   const handleTabChange = (tab: Tab) => { setActiveTab(tab); scrape(tab); };
+  const handleForceRefresh = () => scrape(activeTab, true);
   const handleLogout = async () => {
     await fetch("/api/auth/logout", { method: "POST" });
     router.push("/login");
@@ -345,10 +641,13 @@ export default function MembersPage() {
   const handleClearFilters = () => {
     setSearchName(""); setJoinedAfter(""); setJoinedBefore("");
     setPriceFilter(""); setReferral("");
-    scrape(activeTab, { searchName: "", joinedAfter: "", joinedBefore: "", priceFilter: "", referral: "" });
+    setCurrentPage(1);
   };
 
-  const hasFilters = searchName || joinedAfter || joinedBefore || priceFilter || referral;
+  // Reset to page 1 whenever any filter changes
+  useEffect(() => { setCurrentPage(1); }, [searchName, priceFilter, referral, joinedAfter, joinedBefore]);
+
+  const hasFilters = !!(searchName || joinedAfter || joinedBefore || priceFilter || referral);
 
   return (
     <div className="min-h-screen bg-[#f5f4f0]">
@@ -393,9 +692,35 @@ export default function MembersPage() {
             <h1 className="text-xl font-bold text-gray-900">Members</h1>
             {!loading && (
               <p className="text-[12px] text-gray-400 mt-0.5">
-                {members.length} member{members.length !== 1 ? "s" : ""}
-                {hasFilters && <span className="text-amber-500 ml-1">· filtered</span>}
+                {hasFilters
+                  ? <>{filteredMembers.length} of {allMembers.length} members <span className="text-amber-500">· filtered</span></>
+                  : <>{allMembers.length} members across {totalSkoolPages} pages</>
+                }
               </p>
+            )}
+            {/* Cache status */}
+            {!loading && cachedAt && (
+              <div className="flex items-center gap-1.5 mt-1.5">
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                  fromCache
+                    ? "bg-emerald-50 border-emerald-200 text-emerald-700"
+                    : "bg-blue-50 border-blue-200 text-blue-700"
+                }`}>
+                  {fromCache ? (
+                    <><svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>From cache</>
+                  ) : (
+                    <><svg className="w-2.5 h-2.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>Live fetch</>
+                  )}
+                </span>
+                <span className="text-[11px] text-gray-400">
+                  {(() => {
+                    const secs = Math.floor((Date.now() - cachedAt) / 1000);
+                    if (secs < 60) return `${secs}s ago`;
+                    const mins = Math.floor(secs / 60);
+                    return `${mins}m ago · auto-expires in ${30 - mins}m`;
+                  })()}
+                </span>
+              </div>
             )}
           </div>
 
@@ -415,20 +740,25 @@ export default function MembersPage() {
               {hasFilters && <span className="w-1.5 h-1.5 rounded-full bg-amber-500"/>}
             </button>
 
+            {/* Refresh — fetches new data from Skool, bypasses cache */}
             <button
-              onClick={() => scrape(activeTab)}
+              onClick={handleForceRefresh}
               disabled={loading}
+              title="Fetch latest members from Skool (picks up new sign-ups)"
               className="flex items-center gap-1.5 px-3.5 py-2 bg-[#f5c842] hover:bg-[#e6bb38] disabled:opacity-60 text-gray-900 rounded-lg text-[13px] font-bold transition-colors"
             >
               {loading
                 ? <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M21 12a9 9 0 11-6.219-8.56"/></svg>
                 : <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>}
-              {loading ? "Loading…" : "Refresh"}
+              {loading ? "Fetching…" : "Refresh"}
             </button>
 
-            <button className="px-3.5 py-2 bg-white border border-gray-200 text-gray-600 rounded-lg text-[13px] font-medium hover:border-gray-300 transition-colors">
-              Export ↗
-            </button>
+            <ExportButton
+              allMembers={allMembers}
+              filteredMembers={filteredMembers}
+              activeTab={activeTab}
+              hasFilters={hasFilters}
+            />
           </div>
         </div>
 
@@ -567,18 +897,66 @@ export default function MembersPage() {
                 </div>
               </div>
 
-              <div className="col-span-2 flex justify-end pt-1">
-                <button
-                  onClick={() => scrape(activeTab)}
-                  className="px-4 py-1.5 bg-gray-900 text-white text-[13px] font-semibold rounded-lg hover:bg-gray-700 transition-colors"
-                >
-                  Apply
-                </button>
+              <div className="col-span-2 flex items-center justify-between pt-2 border-t border-gray-100">
+                <p className="text-[12px] text-gray-400">
+                  {hasFilters
+                    ? <><span className="font-semibold text-gray-700">{filteredMembers.length}</span> of <span className="font-semibold text-gray-700">{allMembers.length}</span> members match</>
+                    : <><span className="font-semibold text-gray-700">{allMembers.length}</span> members total</>
+                  }
+                </p>
+                {hasFilters && (
+                  <button
+                    onClick={handleClearFilters}
+                    className="text-[12px] text-gray-400 hover:text-gray-700 underline underline-offset-2 transition-colors"
+                  >
+                    Clear filters
+                  </button>
+                )}
               </div>
             </div>
           </div>
         )}
 
+        {/* ── Cache info banner ────────────────────────────────────── */}
+        {!loading && fromCache && cachedAt && (
+          <div className="flex items-center justify-between bg-white border border-gray-200 rounded-xl px-4 py-3 mb-4 shadow-sm">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0">
+                <svg className="w-4 h-4 text-emerald-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <ellipse cx="12" cy="5" rx="9" ry="3"/>
+                  <path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/>
+                  <path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+                </svg>
+              </div>
+              <div>
+                <p className="text-[13px] font-semibold text-gray-800">
+                  Showing cached data
+                  <span className="font-normal text-gray-400 ml-1">
+                    · fetched {(() => {
+                      const secs = Math.floor((Date.now() - cachedAt) / 1000);
+                      if (secs < 60) return `${secs} seconds ago`;
+                      const mins = Math.floor(secs / 60);
+                      return `${mins} minute${mins !== 1 ? "s" : ""} ago`;
+                    })()}
+                  </span>
+                </p>
+                <p className="text-[11px] text-gray-400 mt-0.5">
+                  New members who joined since then won't appear. Click <strong className="text-gray-600">Refresh</strong> to fetch the latest data from Skool.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={handleForceRefresh}
+              disabled={loading}
+              className="flex-shrink-0 flex items-center gap-1.5 px-3.5 py-2 bg-gray-900 hover:bg-gray-700 text-white rounded-lg text-[12px] font-semibold transition-colors ml-4"
+            >
+              <svg className="w-3 h-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/>
+              </svg>
+              Fetch new data
+            </button>
+          </div>
+        )}
         {/* ── Error ───────────────────────────────────────────────── */}
         {error && (
           <div className="mb-4 p-3.5 bg-red-50 border border-red-200 rounded-xl flex items-center gap-2.5 text-[13px] text-red-600">
@@ -614,7 +992,9 @@ export default function MembersPage() {
             </nav>
             {!loading && (
               <span className="text-[12px] text-gray-400 font-medium">
-                {members.length} {members.length === 1 ? "result" : "results"}
+                {hasFilters
+                  ? `${filteredMembers.length} / ${allMembers.length} members`
+                  : `${allMembers.length} members`}
               </span>
             )}
           </div>
@@ -627,8 +1007,28 @@ export default function MembersPage() {
                   <path d="M21 12a9 9 0 11-6.219-8.56"/>
                 </svg>
               </div>
-              <p className="text-[14px] font-medium text-gray-600">Loading members from Skool…</p>
-              <p className="text-[12px] text-gray-400 mt-1">Headless browser running, this takes a few seconds</p>
+              {elapsed < 2 ? (
+                <>
+                  <p className="text-[14px] font-medium text-gray-700">Checking cache…</p>
+                  <p className="text-[12px] text-gray-400 mt-1">Loading instantly if cached</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-[14px] font-medium text-gray-700">Scraping all pages from Skool…</p>
+                  <p className="text-[12px] text-gray-400 mt-1.5">
+                    Fetching {totalSkoolPages > 0 ? `${totalSkoolPages} pages` : "all pages"} · {elapsed}s elapsed
+                  </p>
+                  <div className="mt-4 mx-auto w-48 h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-[#f5c842] rounded-full transition-all duration-1000"
+                      style={{ width: totalSkoolPages > 0 ? `${Math.min(95, (elapsed / (totalSkoolPages * 2.5)) * 100)}%` : `${Math.min(60, elapsed * 3)}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-gray-300 mt-2">
+                    {totalSkoolPages > 1 ? `~${Math.round(totalSkoolPages * 2.5)}s total` : "This may take 30–60 seconds"}
+                  </p>
+                </>
+              )}
             </div>
           ) : members.length === 0 ? (
             <div className="py-24 text-center">
@@ -646,13 +1046,28 @@ export default function MembersPage() {
               </p>
             </div>
           ) : (
-            <ul>
-              {members.map((m) => (
-                <li key={m.id}>
-                  <MemberCard member={m}/>
-                </li>
-              ))}
-            </ul>
+            <>
+              <ul>
+                {members.map((m) => (
+                  <li key={m.id}>
+                    <MemberCard member={m}/>
+                  </li>
+                ))}
+              </ul>
+              {/* Pagination footer */}
+              {filteredMembers.length > PAGE_SIZE && (
+                <>
+                  <Pagination
+                    current={currentPage}
+                    total={totalFilteredPages}
+                    onChange={(p) => { setCurrentPage(p); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                  />
+                  <div className="pb-3 text-center text-[12px] text-gray-400">
+                    Showing {pageStart + 1}–{Math.min(pageStart + PAGE_SIZE, filteredMembers.length)} of {filteredMembers.length} members
+                  </div>
+                </>
+              )}
+            </>
           )}
         </div>
       </main>
