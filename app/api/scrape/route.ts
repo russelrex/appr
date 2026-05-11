@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { chromium } from "playwright";
 import { scrapeCache } from "@/app/lib/scrapeCache";
+import { launchBrowser } from "@/app/lib/launchBrowser";
 import type { SkoolMember } from "@/app/lib/skoolMember";
 
 export const runtime = "nodejs";
@@ -31,7 +31,7 @@ function getTabParam(tab: string): string {
 }
 
 async function extractMembersFromPage(
-  page: import("playwright").Page,
+  page: import("playwright-core").Page,
   pageIdx: number
 ): Promise<SkoolMember[]> {
   return page.evaluate((pgIdx: number) => {
@@ -155,7 +155,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Cache miss or force refresh — run Playwright ─────────────────────────
-  const browser = await chromium.launch({ headless: true });
+  const browser = await launchBrowser();
   const context = await browser.newContext({
     userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
   });
@@ -171,6 +171,8 @@ export async function POST(req: NextRequest) {
   const page = await context.newPage();
 
   try {
+    await page.route("**/*.{png,jpg,jpeg,gif,webp,svg,woff,woff2,ttf,eot}", (route) => route.abort());
+
     const url = `${SKOOL_URL}${getTabParam(tab)}`;
     await page.goto(url, { waitUntil: "networkidle", timeout: 25000 });
     await page.waitForTimeout(2000);
@@ -210,7 +212,7 @@ export async function POST(req: NextRequest) {
     // Page 1
     for (let s = 0; s < 6; s++) {
       await page.evaluate(() => window.scrollBy(0, 1400));
-      await page.waitForTimeout(400);
+      await page.waitForTimeout(300);
     }
     addMembers(await extractMembersFromPage(page, 0));
 
@@ -232,12 +234,11 @@ export async function POST(req: NextRequest) {
       await page.waitForTimeout(2000);
       await page.waitForLoadState("networkidle").catch(() => {});
 
-      for (let s = 0; s < 5; s++) {
+      for (let s = 0; s < 4; s++) {
         await page.evaluate(() => window.scrollBy(0, 1400));
-        await page.waitForTimeout(300);
+        await page.waitForTimeout(250);
       }
       await page.evaluate(() => window.scrollTo(0, 0));
-      await page.waitForTimeout(200);
 
       addMembers(await extractMembersFromPage(page, pg - 1));
     }
