@@ -1,36 +1,59 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Skool Member Scraper
 
-## Getting Started
+Automated Skool member search tool built with Next.js + Playwright.
 
-First, run the development server:
+## Setup
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+# 1. Install dependencies
+pnpm install
+
+# 2. Install Playwright browser
+pnpm exec playwright install chromium
+
+# 3. Run dev server
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Then open http://localhost:3000
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## How it works
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+- **`/members`** — Dashboard UI (mock data shown by default)
+- **`/api/scrape`** — POST endpoint that runs headless Playwright to scrape `skool.com/aegisnutritionacademy/-/members`
 
-## Learn More
+## Usage
 
-To learn more about Next.js, take a look at the following resources:
+1. Open the dashboard at `http://localhost:3000`
+2. Click **Filter** to expand filter options
+3. Enter your **Skool email + password** (sent only to your local API, never stored)
+4. Set filters:
+   - Name / handle search
+   - Joined after / before date
+   - Paid members only / Free members only
+   - Referral source (Google, Instagram, YouTube, Facebook)
+5. Click **Run Scraper** — live data replaces mock data
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Tabs
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Tab | Skool Filter |
+|-----|-------------|
+| Active | Default members list |
+| Cancelling | `?filter=cancelling` |
+| Churned | `?filter=churned` |
+| Banned | `?filter=banned` |
 
-## Deploy on Vercel
+## File Structure
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+app/
+  page.tsx              → redirects to /members
+  members/page.tsx      → main dashboard UI
+  api/scrape/route.ts   → Playwright scraper API
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Notes
+
+- Credentials are used only to authenticate with Skool during the scrape session
+- The scraper scrolls the page to load lazy-loaded members before extracting
+- All filters are applied server-side after scraping
