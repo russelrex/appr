@@ -18,13 +18,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Email and password are required." }, { status: 400 });
   }
 
+  console.log("[login] env:", {
+    VERCEL: process.env.VERCEL,
+    NODE_ENV: process.env.NODE_ENV,
+    AWS_LAMBDA: process.env.AWS_LAMBDA_JS_RUNTIME,
+  });
+
   let browser;
   try {
     browser = await launchBrowser();
+    console.log("[login] browser launched ok");
   } catch (err) {
-    console.error("[login] browser launch failed:", String(err));
+    const msg = String(err);
+    console.error("[login] browser launch failed:", msg);
     return NextResponse.json(
-      { error: `Browser failed to start: ${String(err)}` },
+      {
+        error: `Browser failed to start: ${msg}`,
+        diagnostics: {
+          VERCEL: process.env.VERCEL ?? null,
+          NODE_ENV: process.env.NODE_ENV,
+          AWS_LAMBDA: process.env.AWS_LAMBDA_JS_RUNTIME ?? null,
+          cwd: process.cwd(),
+        },
+      },
       { status: 500 }
     );
   }
@@ -62,6 +78,7 @@ export async function POST(req: NextRequest) {
 
     const cookies = await context.cookies();
     await browser.close();
+    console.log("[login] success, cookies:", cookies.length);
 
     const sessionData = JSON.stringify(cookies);
     const res = NextResponse.json({ ok: true, redirectTo: "/members" });
@@ -86,7 +103,7 @@ export async function POST(req: NextRequest) {
 
     return res;
   } catch (err) {
-    console.error("[login] scrape error:", String(err));
+    console.error("[login] page error:", String(err));
     await browser.close().catch(() => {});
     return NextResponse.json({ error: `Login error: ${String(err)}` }, { status: 500 });
   }
