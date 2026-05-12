@@ -68,42 +68,79 @@ export function LoginClient() {
     error.toLowerCase().includes("path");
 
   return (
-    <div className="min-h-screen bg-[#f5f4f0] flex items-center justify-center px-4 py-10">
+    <div
+      className="min-h-screen flex items-center justify-center px-4 py-10"
+      style={{ background: "var(--bg)" }}
+    >
       <div className="w-full max-w-lg">
         <div className="flex flex-col items-center mb-8">
-          <div className="w-12 h-12 rounded-2xl bg-[#f5c842] flex items-center justify-center mb-3 shadow-sm">
-            <span className="font-black text-gray-900 text-xl">S</span>
+          <div
+            className="w-12 h-12 rounded-2xl flex items-center justify-center mb-3 shadow-sm"
+            style={{ background: "var(--accent)" }}
+          >
+            <span className="font-black text-xl" style={{ color: "var(--accent-ink)" }}>
+              S
+            </span>
           </div>
-          <h1 className="text-2xl font-bold text-gray-900">Sign in to Skool</h1>
-          <p className="text-sm text-gray-500 mt-1">Aegis Nutrition Academy · Member Manager</p>
+          <h1 className="text-2xl font-bold" style={{ color: "var(--ink)" }}>
+            Sign in to Skool
+          </h1>
+          <p className="text-sm mt-1" style={{ color: "var(--ink-3)" }}>
+            Aegis Nutrition Academy · Member Manager
+          </p>
         </div>
 
-        <div className="bg-white border border-gray-200 rounded-2xl shadow-sm p-8">
+        <div
+          className="shadow-sm p-8"
+          style={{
+            background: "var(--surface)",
+            border: "1px solid var(--hair)",
+            borderRadius: 14,
+          }}
+        >
           <form onSubmit={handleSubmit} className="space-y-4">
             {error && (
-              <div className="rounded-xl border border-red-200 bg-red-50 overflow-hidden">
+              <div
+                className="overflow-hidden"
+                style={{
+                  background: "color-mix(in oklab,var(--neg) 8%,transparent)",
+                  border: "1px solid color-mix(in oklab,var(--neg) 25%,transparent)",
+                  borderRadius: 10,
+                }}
+              >
                 <div className="flex items-start gap-2.5 p-3.5">
                   <svg
-                    className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5"
+                    className="w-4 h-4 flex-shrink-0 mt-0.5"
                     viewBox="0 0 24 24"
                     fill="none"
                     stroke="currentColor"
                     strokeWidth="2"
+                    style={{ color: "var(--neg)" }}
                   >
                     <circle cx="12" cy="12" r="10" />
                     <line x1="12" y1="8" x2="12" y2="12" />
                     <line x1="12" y1="16" x2="12.01" y2="16" />
                   </svg>
-                  <p className="text-sm text-red-700 font-medium leading-snug">{error}</p>
+                  <p className="text-sm font-medium leading-snug" style={{ color: "var(--neg)" }}>
+                    {error}
+                  </p>
                 </div>
 
                 {isBrowserError && (
-                  <div className="border-t border-red-200 px-3.5 py-2 flex items-center justify-between bg-red-50/80">
-                    <span className="text-[11px] text-red-500 font-medium">Server-side error detected</span>
+                  <div
+                    className="px-3.5 py-2 flex items-center justify-between"
+                    style={{
+                      borderTop: "1px solid color-mix(in oklab,var(--neg) 25%,transparent)",
+                    }}
+                  >
+                    <span className="text-[11px] font-medium" style={{ color: "var(--neg)" }}>
+                      Server-side error detected
+                    </span>
                     <button
                       type="button"
                       onClick={() => setShowDiag((v) => !v)}
-                      className="text-[11px] text-red-600 hover:text-red-800 underline underline-offset-2 font-semibold"
+                      className="text-[11px] underline underline-offset-2 font-semibold"
+                      style={{ color: "var(--neg)", background: "transparent", border: 0, cursor: "pointer" }}
                     >
                       {showDiag ? "Hide" : "Show"} diagnostics
                     </button>
@@ -215,7 +252,9 @@ export function LoginClient() {
             )}
 
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1.5 block">Email</label>
+              <label className="text-sm font-medium mb-1.5 block" style={{ color: "var(--ink-2)" }}>
+                Email
+              </label>
               <input
                 type="email"
                 value={email}
@@ -223,12 +262,14 @@ export function LoginClient() {
                 placeholder="you@email.com"
                 required
                 autoFocus
-                className="w-full px-3.5 py-2.5 text-sm border border-gray-200 rounded-lg bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition"
+                className="input"
               />
             </div>
 
             <div>
-              <label className="text-sm font-medium text-gray-700 mb-1.5 block">Password</label>
+              <label className="text-sm font-medium mb-1.5 block" style={{ color: "var(--ink-2)" }}>
+                Password
+              </label>
               <div className="relative">
                 <input
                   type={showPassword ? "text" : "password"}
@@ -236,12 +277,14 @@ export function LoginClient() {
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="••••••••"
                   required
-                  className="w-full px-3.5 py-2.5 pr-10 text-sm border border-gray-200 rounded-lg bg-white text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition"
+                  className="input"
+                  style={{ paddingRight: 40 }}
                 />
                 <button
                   type="button"
                   onClick={() => setShowPassword((v) => !v)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                  className="absolute right-3 top-1/2 -translate-y-1/2 transition-colors"
+                  style={{ color: "var(--ink-4)" }}
                 >
                   {showPassword ? (
                     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -262,7 +305,9 @@ export function LoginClient() {
             <button
               type="submit"
               disabled={loading || !email || !password}
-              className="w-full py-2.5 bg-[#f5c842] hover:bg-[#e6bb38] disabled:opacity-50 disabled:cursor-not-allowed text-gray-900 font-bold text-sm rounded-lg transition-colors flex items-center justify-center gap-2 mt-2"
+              className="btn flex items-center justify-center gap-2 mt-2"
+              data-variant="accent"
+              style={{ width: "100%", height: 40, fontSize: 14, fontWeight: 700 }}
             >
               {loading ? (
                 <>
@@ -277,20 +322,21 @@ export function LoginClient() {
             </button>
           </form>
 
-          <div className="mt-5 pt-5 border-t border-gray-100">
+          <div className="mt-5 pt-5" style={{ borderTop: "1px solid var(--hair)" }}>
             <div className="flex gap-2.5">
               <svg
-                className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5"
+                className="w-4 h-4 flex-shrink-0 mt-0.5"
                 viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 strokeWidth="2"
+                style={{ color: "var(--ink-4)" }}
               >
                 <circle cx="12" cy="12" r="10" />
                 <line x1="12" y1="16" x2="12" y2="12" />
                 <line x1="12" y1="8" x2="12.01" y2="8" />
               </svg>
-              <p className="text-xs text-gray-400 leading-relaxed">
+              <p className="text-xs leading-relaxed" style={{ color: "var(--ink-3)" }}>
                 Your credentials are used only to authenticate with Skool via a local browser session. They are never
                 stored or sent to any third party.
               </p>
@@ -299,7 +345,7 @@ export function LoginClient() {
         </div>
 
         {loading && (
-          <p className="text-center text-xs text-gray-400 mt-4 animate-pulse">
+          <p className="text-center text-xs mt-4 animate-pulse" style={{ color: "var(--ink-4)" }}>
             Opening headless browser · logging into Skool…
           </p>
         )}
