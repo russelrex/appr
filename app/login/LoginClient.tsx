@@ -8,6 +8,7 @@ interface Diagnostics {
   NODE_ENV?: string;
   AWS_LAMBDA?: string | null;
   cwd?: string;
+  pnpmEntries?: string[];
 }
 
 export function LoginClient() {
@@ -142,6 +143,18 @@ export function LoginClient() {
                         <p className="text-[12px] text-orange-900 font-mono break-all">{String(value)}</p>
                       </div>
                     ))}
+                    {diagnostics.pnpmEntries && diagnostics.pnpmEntries.length > 0 && (
+                      <div className="col-span-2">
+                        <p className="text-[10px] font-bold text-orange-600 uppercase tracking-wider mb-1">
+                          pnpm store entries (chromium/playwright)
+                        </p>
+                        {diagnostics.pnpmEntries.map((e) => (
+                          <p key={e} className="text-[11px] text-orange-900 font-mono">
+                            {e}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                   </div>
                 )}
 

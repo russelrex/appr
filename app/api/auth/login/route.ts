@@ -1,9 +1,23 @@
+import fs from "node:fs";
+import path from "node:path";
 import { NextRequest, NextResponse } from "next/server";
 import { launchBrowser } from "@/app/lib/launchBrowser";
 
 export const maxDuration = 30;
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+function readPnpmFilterEntries(): string[] {
+  try {
+    const pnpmStore = path.join(process.cwd(), "node_modules/.pnpm");
+    if (!fs.existsSync(pnpmStore)) return [];
+    return (fs.readdirSync(pnpmStore) as string[]).filter(
+      (e) => e.includes("sparticuz") || e.includes("chromium") || e.includes("playwright")
+    );
+  } catch {
+    return [];
+  }
+}
 
 export async function POST(req: NextRequest) {
   let body: { email?: string; password?: string } = {};
@@ -21,7 +35,7 @@ export async function POST(req: NextRequest) {
   console.log("[login] env:", {
     VERCEL: process.env.VERCEL,
     NODE_ENV: process.env.NODE_ENV,
-    AWS_LAMBDA: process.env.AWS_LAMBDA_JS_RUNTIME,
+    cwd: process.cwd(),
   });
 
   let browser;
@@ -39,6 +53,7 @@ export async function POST(req: NextRequest) {
           NODE_ENV: process.env.NODE_ENV,
           AWS_LAMBDA: process.env.AWS_LAMBDA_JS_RUNTIME ?? null,
           cwd: process.cwd(),
+          pnpmEntries: readPnpmFilterEntries(),
         },
       },
       { status: 500 }

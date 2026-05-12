@@ -1,9 +1,27 @@
 /**
- * Serverless (Vercel / Lambda-style): `require` + explicit `bin` dir so pnpm layouts resolve.
- * Local: dynamic `import("playwright")` with bundled Chromium.
+ * Serverless: `require` + scan `node_modules` for `@sparticuz/chromium/bin` (pnpm + hoisted).
+ * Local: `import("playwright")` with bundled Chromium.
  */
 import { createRequire } from "node:module";
+import fs from "node:fs";
 import path from "node:path";
+
+function resolveSparticuzBinDir(): string | undefined {
+  const cwd = process.cwd();
+  const hoisted = path.join(cwd, "node_modules/@sparticuz/chromium/bin");
+  if (fs.existsSync(hoisted)) return hoisted;
+
+  const pnpmStore = path.join(cwd, "node_modules/.pnpm");
+  if (fs.existsSync(pnpmStore)) {
+    const entries = fs.readdirSync(pnpmStore) as string[];
+    const match = entries.find((e) => e.startsWith("@sparticuz+chromium@"));
+    if (match) {
+      const candidate = path.join(pnpmStore, match, "node_modules/@sparticuz/chromium/bin");
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  }
+  return undefined;
+}
 
 export async function launchBrowser() {
   const isServerless =
@@ -22,14 +40,16 @@ export async function launchBrowser() {
 
     Chromium.setGraphicsMode = false;
 
-    const entry = require.resolve("@sparticuz/chromium");
-    const pkgDir = path.resolve(path.dirname(entry), "..", "..");
-    const binDir = path.join(pkgDir, "bin");
-    const execPath = await Chromium.executablePath(binDir);
+    const binDir = resolveSparticuzBinDir();
+    console.log("[chromium] binDir:", binDir ?? "not found, using default");
+    const executablePath = binDir
+      ? await Chromium.executablePath(binDir)
+      : await Chromium.executablePath();
+    console.log("[chromium] executablePath:", executablePath);
 
     return playwrightCore.launch({
       args: Chromium.args,
-      executablePath: execPath,
+      executablePath,
       headless: true,
     });
   }
